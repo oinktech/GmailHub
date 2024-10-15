@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>登入頁面</title>
+    <style>
+        .form-container {
+            display: none;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .active-form {
+            display: block;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2>登入系統</h2>
+        <div id="login-form" class="form-container active-form">
+            <form method="POST">
+                <div class="form-group">
+                    <label for="email">電子郵件</label>
+                    <input type="email" class="form-control" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">密碼</label>
+                    <input type="password" class="form-control" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">登入</button>
+            </form>
+            <div class="form-group form-switch" onclick="toggleForm()">還沒有帳號？註冊</div>
+            <div class="form-group form-switch" onclick="location.href='/forgot_password'">忘記密碼？</div>
+        </div>
+        <div id="register-form" class="form-container">
+            <form action="/register" method="POST">
+                <div class="form-group">
+                    <label for="email">電子郵件</label>
+                    <input type="email" class="form-control" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">密碼</label>
+                    <input type="password" class="form-control" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-success w-100">註冊</button>
+            </form>
+            <div class="form-group form-switch" onclick="toggleForm()">已經有帳號了？登入</div>
+        </div>
+    </div>
+    <script>
+        function toggleForm() {
+            const loginForm = document.getElementById('login-form');
+            const registerForm = document.getElementById('register-form');
+            loginForm.classList.toggle('active-form');
+            registerForm.classList.toggle('active-form');
+        }
+    </script>
+</body>
+</html>
