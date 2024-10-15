@@ -3,9 +3,12 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from authlib.integrations.flask_client import OAuth
 from googleapiclient.discovery import build
+from flask_mail import Mail, Message
 import os
 from dotenv import load_dotenv
-from flask_mail import Mail, Message
+import uuid
+import jwt
+import datetime
 
 # 加載.env文件中的環境變數
 load_dotenv()
@@ -42,13 +45,22 @@ app.config['MAIL_USE_SSL'] = True
 mail = Mail(app)
 
 # 數據庫模型
-class User(UserMixin, db.Model):
+class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(150), nullable=False)
     google_id = db.Column(db.String(150), unique=True, nullable=True)
 
-# 登入管理
+# 錯誤處理
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    return render_template('500.html'), 500
+
+# 錄入 Google 身份驗證
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -56,55 +68,35 @@ def load_user(user_id):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        if 'login' in request.form:
-            email = request.form.get('email')
-            password = request.form.get('password')
-            user = User.query.filter_by(email=email).first()
-            if user and user.password == password:
-                login_user(user)
-                return redirect(url_for('dashboard'))
-            flash('登入失敗，請檢查您的電子郵件和密碼。', 'error')
-        
-        if 'register' in request.form:
-            email = request.form.get('email')
-            password = request.form.get('password')
-            if User.query.filter_by(email=email).first():
-                flash('該郵箱已註冊。', 'error')
-            else:
-                new_user = User(email=email, password=password)
-                db.session.add(new_user)
-                db.session.commit()
-                flash('註冊成功！', 'success')
-                login_user(new_user)
-                return redirect(url_for('dashboard'))
-        
+        email = request.form.get('email')
+        password = request.form.get('password')
+
+        # 驗證用戶登錄
+        user = User.query.filter_by(email=email).first()
+        if user and user.password == password:
+            login_user(user)
+            return redirect(url_for('dashboard'))
+        else:
+            flash('登入失敗，請檢查您的電子郵件和密碼', 'error')
+
     return render_template('index.html')
 
-@app.route('/auth/google')
-def google_login():
-    redirect_uri = url_for('google_auth', _external=True)
-    return google.authorize(redirect_uri=redirect_uri)
-
-@app.route('/auth/callback')
-def google_auth():
-    token = google.authorize_access_token()
-    resp = google.get('userinfo')
-    user_info = resp.json()
-    google_id = user_info['sub']
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        if User.query.filter_by(email=email).first():
+            flash('該郵箱已被註冊。', 'error')
+        else:
+            new_user = User(email=email, password=password)
+            db.session.add(new_user)
+            db.session.commit()
+            flash('註冊成功，請登入！', 'success')
+            return redirect(url_for('index'))
     
-    user = User.query.filter_by(google_id=google_id).first()
-    if not user:
-        user = User(email=user_info['email'], google_id=google_id)
-        db.session.add(user)
-        db.session.commit()
-    
-    login_user(user)
-    return redirect(url_for('dashboard'))
-
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    return render_template('dashboard.html', email=current_user.email)
+    return render_template('register.html')
 
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
@@ -121,22 +113,75 @@ def forgot_password():
     return render_template('forgot_password.html')
 
 def generate_reset_token(email):
-    # 這裡可以使用其餘方法生成安全的 token
-    return 'token'
+    token = jwt.encode({'email': email, 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)}, os.getenv('SECRET_KEY'), algorithm='HS256')
+    return token
 
 @app.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
+    try:
+        email = jwt.decode(token, os.getenv('SECRET_KEY'), algorithms=['HS256'])['email']
+    except jwt.ExpiredSignatureError:
+        flash('重置密碼的鏈接已過期。', 'error')
+        return redirect(url_for('forgot_password'))
+    
     if request.method == 'POST':
         new_password = request.form.get('password')
-        # 根據 token 查詢用戶並重設密碼
-        flash('密碼已成功重置。', 'success')
-        return redirect(url_for('index'))
+        user = User.query.filter_by(email=email).first()
+        if user:
+            user.password = new_password
+            db.session.commit()
+            flash('密碼已成功重置。', 'success')
+            return redirect(url_for('index'))
+    
     return render_template('reset_password.html')
 
 def send_email(to, subject, body):
     msg = Message(subject, sender=os.getenv('MAIL_USERNAME'), recipients=[to])
     msg.body = body
     mail.send(msg)
+
+@app.route('/auth/google')
+def google_login():
+    redirect_uri = url_for('google_auth', _external=True)
+    return google.authorize(redirect_uri=redirect_uri)
+
+@app.route('/auth/callback')
+def google_auth():
+    response = google.authorize_access_token()
+    user_info = google.get('userinfo').json()
+    email = user_info['email']
+    google_id = user_info['sub']
+    
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(email=email, google_id=google_id)
+        db.session.add(user)
+        db.session.commit()
+    
+    login_user(user)
+    return redirect(url_for('dashboard'))
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return render_template('dashboard.html')
+
+@app.route('/mail')
+@login_required
+def mail():
+    service = build('gmail', 'v1', credentials=google.access_token)
+    results = service.users().messages().list(userId='me', maxResults=10).execute()
+    messages = results.get('messages', [])
+    
+    email_contents = []
+    if not messages:
+        flash('沒有找到郵件。', 'info')
+    else:
+        for message in messages:
+            msg = service.users().messages().get(userId='me', id=message['id']).execute()
+            email_contents.append(msg)
+    
+    return render_template('mail.html', emails=email_contents)
 
 @app.route('/logout')
 @login_required
@@ -145,5 +190,5 @@ def logout():
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    db.create_all()
-    app.run(debug=True,port=10000, host='0.0.0.0')
+    db.create_all()  # 創建數據庫
+    app.run(port=10000, host='0.0.0.0',debug=True)
