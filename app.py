@@ -190,5 +190,6 @@ def logout():
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    db.create_all()  # 創建數據庫
+    with app.app_context():
+        db.create_all()  # 創建數據庫
     app.run(port=10000, host='0.0.0.0',debug=True)
