@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>郵件列表</title>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2>郵件列表</h2>
+        <ul class="list-group">
+            {% for email in emails %}
+                <li class="list-group-item">
+                    <h5>{{ email['snippet'] }}</h5>
+                    <p>{{ email['payload']['headers']|first }}</p>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>
